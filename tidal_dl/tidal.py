@@ -441,7 +441,7 @@ class TidalAPI(object):
         self.key.accessToken = r.json()['access_token']
         self.key.expiresIn = r.json()['expires_in']
         self.key.refreshToken = r.json()['refresh_token']
-        print(f"SUCCESSFUL HACK: {self.key.accessToken} | {self.key.refreshToken} | {self.key.userId} | {self.key.expiresIn}")
+        # print(f"SUCCESSFUL HACK: {self.key.accessToken} | {self.key.refreshToken} | {self.key.userId} | {self.key.expiresIn}")
         return None, True
         
 
@@ -542,9 +542,9 @@ class TidalAPI(object):
         msg, data = self.__get__('tracks/' + str(id) + "/playbackinfopostpaywall", paras)
         if msg is not None:
             return msg, None
-        print(data)
+        # print(data)
         resp = dictToModel(data, __StreamRespond__())
-        print(resp)
+        # print(resp)
 
         if "vnd.tidal.bt" in resp.manifestMimeType:
             manifest = json.loads(base64.b64decode(resp.manifest).decode('utf-8'))
