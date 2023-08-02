@@ -131,6 +131,8 @@ class TidalAPI(object):
             return "HIGH"
         if quality == AudioQuality.HiFi:
             return "LOSSLESS"
+        if quality == AudioQuality.HiRes:
+            return "HI_RES_LOSSLESS"
         return "HI_RES"
 
     def __getResolutionList__(self, url):

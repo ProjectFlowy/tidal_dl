@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tidal-dl"
-version = "0.1.0"
+version = "1.0.1"
 description = ""
 authors = ["rf0x3d <yarekfrolov@gmail.com>"]
 readme = "README.md"
@@ -14,6 +14,8 @@ python = "^3.10"
 lyricsgenius = "^3.0.1"
 pycryptodome = "^3.18.0"
 pycryptodomex = "^3.18.0"
+aigpy = "^2022.7.8.1"
+prettytable = "^3.8.0"
 
 
 [build-system]
