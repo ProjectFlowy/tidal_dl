@@ -51,7 +51,7 @@ class Printf(object):
         tb.add_row(["-v or --version", "show version"])
         tb.add_row(["-o or --output", "download path"])
         tb.add_row(["-l or --link", "url/id/filePath"])
-        tb.add_row(["-q or --quality", "track quality('Normal','High,'HiFi','Master')"])
+        tb.add_row(["-q or --quality", "track quality('Normal','High,'HiFi','Master','HiRes')"])
         tb.add_row(["-r or --resolution", "video resolution('P1080', 'P720', 'P480', 'P360')"])
         # tb.add_row(["-u or --username", "account-email"])
         # tb.add_row(["-p or --password", "account-password"])
@@ -202,6 +202,7 @@ class Printf(object):
         if stream is not None:
             tb.add_row(["Get-Q", str(stream.soundQuality)])
             tb.add_row(["Get-Codec", str(stream.codec)])
+            tb.add_row(["Get-Mode", str(stream.audioMode)])
         print(tb)
         logging.info("====track " + str(data.id) + "====\n" + \
                      "title:" + data.title + "\n" + \

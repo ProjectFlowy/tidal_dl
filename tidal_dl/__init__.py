@@ -34,6 +34,9 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 def login():
     print(LANG.AUTH_START_LOGIN)
+    if API.apiKey["platform"] in ["iOS", "macOS", "Android"]:
+        print("please auth with 21")
+        return
     msg, check = API.getDeviceCode()
     if not check:
         Printf.err(msg)
@@ -79,6 +82,9 @@ def setAPIKey():
     Printf.apikeys(apiKey.getItems())
     index = int(Printf.enterLimit("APIKEY index:", LANG.MSG_INPUT_ERR, apiKey.getLimitIndexs()))
     
+    if index == 5 or index == 6:
+        return False
+
     if index != CONF.apiKeyIndex:
         CONF.apiKeyIndex = index
         Settings.save(CONF)
@@ -108,7 +114,7 @@ def changeSettings():
 
     CONF.downloadPath = Printf.enterPath(LANG.CHANGE_DOWNLOAD_PATH, LANG.MSG_PATH_ERR, '0', CONF.downloadPath)
     CONF.audioQuality = AudioQuality(int(Printf.enterLimit(
-        LANG.CHANGE_AUDIO_QUALITY, LANG.MSG_INPUT_ERR, ['0', '1', '2', '3'])))
+        LANG.CHANGE_AUDIO_QUALITY, LANG.MSG_INPUT_ERR, ['0', '1', '2', '3', '4'])))
     CONF.videoQuality = VideoQuality(int(Printf.enterLimit(
         LANG.CHANGE_VIDEO_QUALITY, LANG.MSG_INPUT_ERR, ['1080', '720', '480', '360'])))
     CONF.onlyM4a = Printf.enter(LANG.CHANGE_ONLYM4A) == '1'
@@ -230,6 +236,20 @@ def main():
             start(TOKEN, CONF, '98235845-13e8-43b4-94e2-d9f8e603cee7')
         elif choice == "14":  # test playlist
             start(TOKEN, CONF, '01453963b7dbd41c8b82ccb678d127')
+        elif choice == "20":
+            ans = API.refreshAccessToken(TOKEN.refreshToken)
+            print(ans)
+            checkLogin()
+        elif choice == "21":
+            err, suc = API.loginByLoginPassword("login", "password", "DESKTOP")
+            TOKEN.accessToken = API.key.accessToken
+            TOKEN.refreshToken = API.key.refreshToken
+            TOKEN.countryCode = API.key.countryCode
+            TOKEN.userid = API.key.userId
+            TOKEN.expiresAfter = time.time() + int(API.key.expiresIn)
+            TokenSettings.save(TOKEN)
+            print(err, suc)
+            checkLogin()
         else:
             start(TOKEN, CONF, choice)
 

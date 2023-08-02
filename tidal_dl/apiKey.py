@@ -54,10 +54,27 @@ __KEYS_JSON__ = '''
             "clientSecret": "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4=",
             "valid": "True",
             "from": "1nikolas (https://github.com/yaronzz/Tidal-Media-Downloader/pull/840)"
+        },
+        {
+            "platform": "macOS",
+            "formats": "Normal/High/HiFi/HI-Res",
+            "clientId": "mhPVJJEBNRzVjr2p",
+            "clientSecret": "",
+            "valid": "True",
+            "from": ""
+        },
+        {
+            "platform": "iOS",
+            "formats": "Normal/High/HiFi/HI-Res",
+            "clientId": "iev4aAXOW942AKZg",
+            "clientSecret": "",
+            "valid": "True",
+            "from": ""
         }
     ]
 }
 '''
+# "clientId": "u5qPNNYIbD0S0o36MrAiFZ56K6qMCrCmYPzZuTnV",
 __API_KEYS__ = json.loads(__KEYS_JSON__)
 __ERROR_KEY__ = {
                     'platform': 'None',
@@ -94,12 +111,12 @@ def getVersion():
     return __API_KEYS__['version']
 
 #Load from gist
-try:
+"""try:
     respond = requests.get('https://api.github.com/gists/48d01f5a24b4b7b37f19443977c22cd6')
     if respond.status_code == 200:
         content = respond.json()['files']['tidal-api-key.json']['content']
         __API_KEYS__ = json.loads(content)
 except:
-    pass
+    pass"""
 
 

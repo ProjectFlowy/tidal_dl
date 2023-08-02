@@ -118,7 +118,7 @@ def getAlbumPath(conf: Settings, album):
     albumArtistName = aigpy.path.replaceLimitChar(album.artist.name, '-') if album.artist is not None else ""
     # album folder pre: [ME][ID]
     flag = API.getFlag(album, Type.Album, True, "")
-    if conf.audioQuality != AudioQuality.Master:
+    if conf.audioQuality not in [AudioQuality.Master, AudioQuality.HiRes]:
         flag = flag.replace("M", "")
     if not conf.addExplicitTag:
         flag = flag.replace("E", "")

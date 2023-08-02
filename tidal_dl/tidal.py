@@ -9,8 +9,14 @@
 @Desc    :   tidal api
 '''
 import base64
+import hashlib
 import json
 import logging
+import re
+import secrets
+from subprocess import PIPE, Popen
+import time
+from urllib.parse import parse_qs, urlparse
 
 import aigpy.stringHelper as stringHelper
 import requests
@@ -31,6 +37,49 @@ __API_KEY__ = {'clientId': '7m7Ap0JC9j1cOM3n',
 urllib3.disable_warnings()
 # add retry number
 requests.adapters.DEFAULT_RETRIES = 5
+
+
+class ReCaptcha(object):
+    def __init__(self):
+        self.captcha_path = 'captcha/'
+
+        self.response_v3 = None
+        self.response_v2 = None
+
+        self.get_response()
+
+    @staticmethod
+    def check_npm():
+        pipe = Popen('npm -version', shell=True, stdout=PIPE).stdout
+        output = pipe.read().decode('UTF-8')
+        found = re.search(r'[0-9].[0-9]+.', output)
+        if not found:
+            print("NPM could not be found.")
+            return False
+        return True
+
+    def get_response(self):
+        if self.check_npm():
+            print("Opening reCAPTCHA check...")
+            command = 'npm start --prefix '
+            pipe = Popen(command + self.captcha_path, shell=True, stdout=PIPE)
+            pipe.wait()
+            output = pipe.stdout.read().decode('UTF-8')
+            pattern = re.compile(r"(?<='response': ')[0-9A-Za-z-_]+")
+            response = pattern.findall(output)
+            if len(response) > 2:
+                print('You only need to complete the captcha once.')
+                return False
+            elif len(response) == 1:
+                self.response_v3 = response[0]
+                return True
+            elif len(response) == 2:
+                self.response_v3 = response[0]
+                self.response_v2 = response[1]
+                return True
+
+            print('Please complete the reCAPTCHA check.')
+            return False
 
 
 class LoginKey(object):
@@ -223,14 +272,23 @@ class TidalAPI(object):
         return None, True
 
     def refreshAccessToken(self, refreshToken):
-        data = {
-            'client_id': self.apiKey['clientId'],
-            'refresh_token': refreshToken,
-            'grant_type': 'refresh_token',
-            'scope': 'r_usr+w_usr+w_sub'
-        }
+        if self.apiKey["platform"] in ["macOS", "iOS", "Android"]:
+            data = {
+                'client_id': self.apiKey['clientId'],
+                'refresh_token': refreshToken,
+                'grant_type': 'refresh_token',
+                'scope': 'r_usr+w_usr'
+            }
+        else:
+            data = {
+                'client_id': self.apiKey['clientId'],
+                'refresh_token': refreshToken,
+                'grant_type': 'refresh_token',
+                'scope': 'r_usr+w_usr+w_sub'
+            }
 
         e, result = self.__post__(__AUTH_URL__ + '/token', data, (self.apiKey['clientId'], self.apiKey['clientSecret']))
+        print(result)
         if e is not None:
             return str(e), False
 
@@ -259,6 +317,133 @@ class TidalAPI(object):
         self.key.countryCode = result['countryCode']
         self.key.accessToken = accessToken
         return None, True
+
+    def loginByLoginPassword(self, login: str, password: str, app_mode: str = "DESKTOP"):
+        session = requests.Session()
+        redirect_uri = "tidal://login/auth"
+        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=')
+        code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier).digest()).rstrip(b'=')
+        client_unique_key = secrets.token_hex(16)
+        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) TIDAL/2.34.3 Chrome/106.0.5249.168 Electron/21.2.3 Safari/537.36"
+        params = {
+            'response_type': 'code',
+            'redirect_uri': redirect_uri,
+            'lang': 'en_US',
+            'appMode': app_mode,
+            'client_id': self.apiKey["clientId"],
+            'client_unique_key': client_unique_key,
+            'consentStatus': "C0004:0",
+            'code_challenge': code_challenge,
+            'code_challenge_method': 'S256',
+            'restrict_signup': 'true'
+        }
+
+        # retrieve csrf token for subsequent request
+        r = session.get('https://login.tidal.com/authorize', params=params, headers={
+            'user-agent': user_agent,
+            'accept-language': 'en-US'
+        })
+
+        if r.status_code == 400:
+            return "Authorization failed! Is the clientid/token up to date?", False
+        elif r.status_code == 403:
+            return "Tidal BOT Protection, try again later!", False
+
+        # try Tidal DataDome cookie request
+        r = session.post('https://dd.tidal.com/js/', data={
+            'ddk': '1F633CDD8EF22541BD6D9B1B8EF13A',  # API Key (required)
+            'Referer': r.url,  # Referer authorize link (required)
+            'responsePage': 'origin',  # useless?
+            'ddv': '4.10.2'  # useless?
+        }, headers={
+            'user-agent': user_agent,
+            'content-type': 'application/x-www-form-urlencoded'
+        })
+
+        if r.status_code != 200 or not r.json().get('cookie'):
+            return "TIDAL BOT protection, could not get DataDome cookie!", False
+
+        # get the cookie from the json request and save it in the session
+        dd_cookie = r.json().get('cookie').split(';')[0]
+        session.cookies[dd_cookie.split('=')[0]] = dd_cookie.split('=')[1]
+
+        # enter email, verify email is valid
+        r = session.post("https://login.tidal.com/api/email", params=params, json={
+            'email': login
+        }, headers={
+            'user-agent': user_agent,
+            'x-csrf-token': session.cookies['_csrf-token'],
+            'accept': 'application/json, text/plain, */*',
+            'content-type': 'application/json',
+            'accept-language': 'en-US'
+        })
+
+        if r.status_code != 200:
+            return r.text, False
+
+        if not r.json()['isValidEmail']:
+            return 'Invalid email', False
+        if r.json()['newUser']:
+            return 'User does not exist', False
+
+        # login with user credentials
+        r = session.post('https://login.tidal.com/api/email/user/existing', params=params, json={
+            'email': login,
+            'password': password
+        }, headers={
+            'User-Agent': user_agent,
+            'x-csrf-token': session.cookies['_csrf-token'],
+            'accept': 'application/json, text/plain, */*',
+            'content-type': 'application/json',
+            'accept-language': 'en-US'
+        })
+
+        if r.status_code != 200:
+            return r.text, False
+
+        # retrieve access code
+        r = session.get('https://login.tidal.com/success?lang=en', allow_redirects=False, headers={
+            'user-agent': user_agent,
+            'accept-language': 'en-US'
+        })
+
+        if r.status_code == 401:
+            return 'Incorrect password', False
+        assert (r.status_code == 302 or r.status_code == 200)
+        if r.status_code == 200:
+            groups = re.findall(r'successRedirectUrl:"([^"]*)"', r.text)
+            if not groups:
+                return "Can't get access code", False
+            url = urlparse(groups[0])
+        else:
+            url = urlparse(r.headers['location'])
+        oauth_code = parse_qs(url.query)['code'][0]
+
+        # exchange access code for oauth token
+        r = requests.post(__AUTH_URL__ + '/token', data={
+            'code': oauth_code,
+            'client_id': self.apiKey["clientId"],
+            'grant_type': 'authorization_code',
+            'redirect_uri': redirect_uri,
+            'scope': 'r_usr w_usr w_sub',
+            'code_verifier': code_verifier,
+            'client_unique_key': client_unique_key
+        }, headers={
+            'User-Agent': user_agent
+        })
+
+        if r.status_code != 200:
+            return r.text, False
+
+        # if auth is successful:
+        self.key.userId = r.json()['user']['userId']
+        self.key.countryCode = r.json()['user']['countryCode']
+        self.key.accessToken = r.json()['access_token']
+        self.key.expiresIn = r.json()['expires_in']
+        self.key.refreshToken = r.json()['refresh_token']
+        print(f"SUCCESSFUL HACK: {self.key.accessToken} | {self.key.refreshToken} | {self.key.userId} | {self.key.expiresIn}")
+        return None, True
+        
 
     def getAlbum(self, id):
         msg, data = self.__get__('albums/' + str(id))
@@ -357,7 +542,9 @@ class TidalAPI(object):
         msg, data = self.__get__('tracks/' + str(id) + "/playbackinfopostpaywall", paras)
         if msg is not None:
             return msg, None
+        print(data)
         resp = dictToModel(data, __StreamRespond__())
+        print(resp)
 
         if "vnd.tidal.bt" in resp.manifestMimeType:
             manifest = json.loads(base64.b64decode(resp.manifest).decode('utf-8'))
@@ -367,6 +554,7 @@ class TidalAPI(object):
             ret.codec = manifest['codecs']
             ret.encryptionKey = manifest['keyId'] if 'keyId' in manifest else ""
             ret.url = manifest['urls'][0]
+            ret.audioMode = resp.audioMode
             return "", ret
         return "Can't get the streamUrl, type is " + resp.manifestMimeType, None
 
@@ -416,11 +604,14 @@ class TidalAPI(object):
 
     def getFlag(self, data, type: Type, short=True, separator=" / "):
         master = False
+        hi_res = False
         atmos = False
         explicit = False
         if type == Type.Album or type == Type.Track:
             if data.audioQuality == "HI_RES":
                 master = True
+            if data.audioQuality == "HI_RES_LOSSLESS":
+                hi_res = True
             if type == Type.Album and "DOLBY_ATMOS" in data.audioModes:
                 atmos = True
             if data.explicit is True:
@@ -428,11 +619,13 @@ class TidalAPI(object):
         if type == Type.Video:
             if data.explicit is True:
                 explicit = True
-        if not master and not atmos and not explicit:
+        if not master and not atmos and not explicit and not hi_res:
             return ""
         array = []
         if master:
             array.append("M" if short else "Master")
+        if hi_res:
+            array.append("M" if short else "Max")
         if atmos:
             array.append("A" if short else "Dolby Atmos")
         if explicit:
