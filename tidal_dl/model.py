@@ -13,6 +13,7 @@ from aigpy.modelHelper import ModelBase
 
 class StreamUrl(ModelBase):
     trackid = None
+    streamType = None
     url = None
     codec = None
     encryptionKey = None

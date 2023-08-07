@@ -83,6 +83,9 @@ def setAPIKey():
     index = int(Printf.enterLimit("APIKEY index:", LANG.MSG_INPUT_ERR, apiKey.getLimitIndexs()))
     
     if index == 5 or index == 6:
+        CONF.apiKeyIndex = index
+        Settings.save(CONF)
+        API.apiKey = apiKey.getItem(index)
         return False
 
     if index != CONF.apiKeyIndex:
@@ -241,13 +244,14 @@ def main():
             print(ans)
             checkLogin()
         elif choice == "21":
-            err, suc = API.loginByLoginPassword("login", "password", "DESKTOP")
-            TOKEN.accessToken = API.key.accessToken
-            TOKEN.refreshToken = API.key.refreshToken
-            TOKEN.countryCode = API.key.countryCode
-            TOKEN.userid = API.key.userId
-            TOKEN.expiresAfter = time.time() + int(API.key.expiresIn)
-            TokenSettings.save(TOKEN)
+            err, suc = API.loginByLoginPassword("login", "password")
+            if not err:
+                TOKEN.accessToken = API.key.accessToken
+                TOKEN.refreshToken = API.key.refreshToken
+                TOKEN.countryCode = API.key.countryCode
+                TOKEN.userid = API.key.userId
+                TOKEN.expiresAfter = time.time() + int(API.key.expiresIn)
+                TokenSettings.save(TOKEN)
             print(err, suc)
             checkLogin()
         else:

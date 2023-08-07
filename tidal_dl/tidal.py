@@ -133,7 +133,7 @@ class TidalAPI(object):
         respond = None
         for index in range(0, retry):
             try:
-                respond = requests.get(urlpre + path, headers=header, params=params)
+                respond = requests.get(urlpre + path, headers=header, params=params, verify=False)
                 result = self.__toJson__(respond.text)
                 break
             except:
@@ -266,7 +266,7 @@ class TidalAPI(object):
 
     def verifyAccessToken(self, accessToken):
         header = {'authorization': 'Bearer {}'.format(accessToken)}
-        result = requests.get('https://api.tidal.com/v1/sessions', headers=header).json()
+        result = requests.get('https://api.tidal.com/v1/sessions', headers=header, verify=False).json()
         if 'status' in result and result['status'] != 200:
             return "Login failed!", False
         return None, True
@@ -305,7 +305,7 @@ class TidalAPI(object):
 
     def loginByAccessToken(self, accessToken, userid=None):
         header = {'authorization': 'Bearer {}'.format(accessToken)}
-        result = requests.get('https://api.tidal.com/v1/sessions', headers=header).json()
+        result = requests.get('https://api.tidal.com/v1/sessions', headers=header, verify=False).json()
         if 'status' in result and result['status'] != 200:
             return "Login failed!", False
 
@@ -335,17 +335,19 @@ class TidalAPI(object):
             'consentStatus': "C0004:0",
             'code_challenge': code_challenge,
             'code_challenge_method': 'S256',
-            'restrict_signup': 'true'
+            'restrict_signup': 'true',
+            'state': "TIDAL_1691407284371_MjA1LDExNSwxNDksMTgzLDE1NywyNiwxNzcsMjEyLDcxLDIyMywxMjksNDQsMjMzLDEyMiw3OSw5OCw3MSwxMDcsMjEsMTc3LDU0LDQ3LDIsMTUxLDQzLDc1LDE1MCwxMDYsMjM3LDE5LDE4NywyNDI"
         }
 
         # retrieve csrf token for subsequent request
         r = session.get('https://login.tidal.com/authorize', params=params, headers={
             'user-agent': user_agent,
+            'accept': "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
             'accept-language': 'en-US'
-        })
+        }, verify=False)
 
         if r.status_code == 400:
-            return "Authorization failed! Is the clientid/token up to date?", False
+            return f"Authorization failed! Is the clientid/token up to date?", False
         elif r.status_code == 403:
             return "Tidal BOT Protection, try again later!", False
 
@@ -358,7 +360,7 @@ class TidalAPI(object):
         }, headers={
             'user-agent': user_agent,
             'content-type': 'application/x-www-form-urlencoded'
-        })
+        }, verify=False)
 
         if r.status_code != 200 or not r.json().get('cookie'):
             return "TIDAL BOT protection, could not get DataDome cookie!", False
@@ -376,7 +378,7 @@ class TidalAPI(object):
             'accept': 'application/json, text/plain, */*',
             'content-type': 'application/json',
             'accept-language': 'en-US'
-        })
+        }, verify=False)
 
         if r.status_code != 200:
             return r.text, False
@@ -396,7 +398,7 @@ class TidalAPI(object):
             'accept': 'application/json, text/plain, */*',
             'content-type': 'application/json',
             'accept-language': 'en-US'
-        })
+        }, verify=False)
 
         if r.status_code != 200:
             return r.text, False
@@ -405,7 +407,7 @@ class TidalAPI(object):
         r = session.get('https://login.tidal.com/success?lang=en', allow_redirects=False, headers={
             'user-agent': user_agent,
             'accept-language': 'en-US'
-        })
+        }, verify=False)
 
         if r.status_code == 401:
             return 'Incorrect password', False
@@ -430,10 +432,12 @@ class TidalAPI(object):
             'client_unique_key': client_unique_key
         }, headers={
             'User-Agent': user_agent
-        })
+        }, verify=False)
 
         if r.status_code != 200:
             return r.text, False
+
+        print(f"Authenticated with {r.json()['clientName']}!")
 
         # if auth is successful:
         self.key.userId = r.json()['user']['userId']
@@ -539,12 +543,11 @@ class TidalAPI(object):
     def getStreamUrl(self, id, quality: AudioQuality):
         squality = self.__getQualityString__(quality)
         paras = {"audioquality": squality, "playbackmode": "STREAM", "assetpresentation": "FULL"}
-        msg, data = self.__get__('tracks/' + str(id) + "/playbackinfopostpaywall", paras)
+        msg, data = self.__get__('tracks/' + str(id) + "/playbackinfopostpaywall", paras, urlpre="https://desktop.tidal.com/v1/")
         if msg is not None:
             return msg, None
-        # print(data)
         resp = dictToModel(data, __StreamRespond__())
-        # print(resp)
+        print(f"{resp.trackId} - {resp.audioQuality}")
 
         if "vnd.tidal.bt" in resp.manifestMimeType:
             manifest = json.loads(base64.b64decode(resp.manifest).decode('utf-8'))
@@ -555,6 +558,22 @@ class TidalAPI(object):
             ret.encryptionKey = manifest['keyId'] if 'keyId' in manifest else ""
             ret.url = manifest['urls'][0]
             ret.audioMode = resp.audioMode
+            ret.streamType = "default"
+            return "", ret
+        elif "application/vnd.apple.mpegurl" in resp.manifestMimeType:
+            return "Can't get the streamUrl, type is " + resp.manifestMimeType, None
+            manifest = json.loads(base64.b64decode(resp.manifest).decode('utf-8'))
+            ret = StreamUrl()
+            ret.trackid = resp.trackid
+            ret.soundQuality = resp.audioQuality
+            ret.codec = manifest['codecs']
+            ret.encryptionKey = manifest['keyId'] if 'keyId' in manifest else manifest["licenseSecurityToken"] if "licenseSecurityToken" in manifest else ""
+            ret.url = manifest['urls'][0]
+            ret.audioMode = resp.audioMode
+            ret.streamType = "m3u8"
+            m3u8_manifest = base64.b64decode(manifest["manifest"])
+            incl_m3u8 = re.findall(r"base64,([A-Za-z0-9+\/.]*)", m3u8_manifest)[1]
+            
             return "", ret
         return "Can't get the streamUrl, type is " + resp.manifestMimeType, None
 
@@ -591,7 +610,7 @@ class TidalAPI(object):
     def getCoverData(self, sid, width="320", height="320"):
         url = self.getCoverUrl(sid, width, height)
         try:
-            respond = requests.get(url)
+            respond = requests.get(url, verify=False)
             return respond.content
         except:
             return ''
