@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tidal-dl"
-version = "1.0.3"
+version = "1.0.4"
 description = ""
 authors = ["rf0x3d <yarekfrolov@gmail.com>"]
 readme = "README.md"

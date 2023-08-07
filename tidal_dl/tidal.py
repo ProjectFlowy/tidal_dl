@@ -547,7 +547,7 @@ class TidalAPI(object):
         if msg is not None:
             return msg, None
         resp = dictToModel(data, __StreamRespond__())
-        print(f"{resp.trackId} - {resp.audioQuality}")
+        print(f"{resp.trackid} - {resp.audioQuality}")
 
         if "vnd.tidal.bt" in resp.manifestMimeType:
             manifest = json.loads(base64.b64decode(resp.manifest).decode('utf-8'))
