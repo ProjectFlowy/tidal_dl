@@ -17,6 +17,8 @@ import secrets
 from subprocess import PIPE, Popen
 import time
 from urllib.parse import parse_qs, urlparse
+from uuid import uuid4
+import xml.etree.ElementTree as ET
 
 import aigpy.stringHelper as stringHelper
 import requests
@@ -24,8 +26,9 @@ from aigpy.modelHelper import dictToModel
 from aigpy.stringHelper import isNull
 from requests.packages import urllib3
 from tidal_dl.enums import Type, AudioQuality, VideoQuality
-from tidal_dl.model import Album, Track, Video, Artist, Playlist, StreamUrl, VideoStreamUrl, SearchResult, Lyrics, Mix
+from tidal_dl.model import Album, Track, Video, Artist, Playlist, StreamUrl, VideoStreamUrl, SearchResult, Lyrics, Mix, SegmentStreamUrl
 import tidal_dl.apiKey as apiKey
+from tidal_dl.printf import Printf
 
 __VERSION__ = '1.9.1'
 __URL_PRE__ = 'https://api.tidalhifi.com/v1/'
@@ -99,6 +102,7 @@ class LoginKey(object):
 class __StreamRespond__(object):
     trackid = None
     videoid = None
+    licenseSecurityToken = None
     streamType = None
     assetPresentation = None
     audioMode = None
@@ -320,24 +324,28 @@ class TidalAPI(object):
 
     def loginByLoginPassword(self, login: str, password: str, app_mode: str = "DESKTOP"):
         session = requests.Session()
-        redirect_uri = "tidal://login/auth"
+        # session.proxies = dict(http='socks5h://gateway-evn.neonteam.cc:30000', https='socks5h://gateway-evn.neonteam.cc:30000')
+        redirect_uri = "tidal://login/auth" if app_mode != "android" else "https://tidal.com/android/login/auth"
         code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b'=')
         code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier).digest()).rstrip(b'=')
         client_unique_key = secrets.token_hex(16)
-        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) TIDAL/2.34.3 Chrome/106.0.5249.168 Electron/21.2.3 Safari/537.36"
+        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) TIDAL/2.34.5 Chrome/106.0.5249.168 Electron/21.2.3 Safari/537.36" if app_mode != "android" else "Mozilla/5.0 (Linux; Android 10; Pixel 4 Build/QQ3A.200805.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/117.0.0.0 Mobile Safari/537.36"
         params = {
             'response_type': 'code',
             'redirect_uri': redirect_uri,
             'lang': 'en_US',
             'appMode': app_mode,
+            'trackingUuid': client_unique_key,
             'client_id': self.apiKey["clientId"],
             'client_unique_key': client_unique_key,
             'consentStatus': "C0004:0",
             'code_challenge': code_challenge,
             'code_challenge_method': 'S256',
-            'restrict_signup': 'true',
-            'state': "TIDAL_1691407284371_MjA1LDExNSwxNDksMTgzLDE1NywyNiwxNzcsMjEyLDcxLDIyMywxMjksNDQsMjMzLDEyMiw3OSw5OCw3MSwxMDcsMjEsMTc3LDU0LDQ3LDIsMTUxLDQzLDc1LDE1MCwxMDYsMjM3LDE5LDE4NywyNDI"
+            'restrictSignup': 'true',
+            'state': "TIDAL_1696679079370_NSwxODgsMTMyLDI0NiwyMDMsMTQ5LDIyOSwxOTEsMTM2LDIzOCw0MCwyMTIsMjI0LDIzNSw5Niw1OSwyMTYsOTQsNzcsMTgsNTQsNzksMTA3LDUwLDEwNSwyMzcsMjE4LDE0NSwxMTYsMTExLDE5Niw0Mw"
         }
+        
+        print(params)
 
         # retrieve csrf token for subsequent request
         r = session.get('https://login.tidal.com/authorize', params=params, headers={
@@ -349,14 +357,14 @@ class TidalAPI(object):
         if r.status_code == 400:
             return f"Authorization failed! Is the clientid/token up to date?", False
         elif r.status_code == 403:
-            return "Tidal BOT Protection, try again later!", False
+            return "Tidal BOT Protection on 1st stage, try again later!", False
 
         # try Tidal DataDome cookie request
         r = session.post('https://dd.tidal.com/js/', data={
             'ddk': '1F633CDD8EF22541BD6D9B1B8EF13A',  # API Key (required)
             'Referer': r.url,  # Referer authorize link (required)
             'responsePage': 'origin',  # useless?
-            'ddv': '4.10.2'  # useless?
+            'ddv': '4.14.0'  # useless?
         }, headers={
             'user-agent': user_agent,
             'content-type': 'application/x-www-form-urlencoded'
@@ -381,6 +389,25 @@ class TidalAPI(object):
         }, verify=False)
 
         if r.status_code != 200:
+            try:
+                _response = r.json()
+                if _response.get("url"):
+                    datadome = input(f"Please solve captcha at url {_response.get('url')} and enter cookie from response: ").split(';')[0]
+                    session.cookies[datadome.split('=')[0]] = datadome.split('=')[1]
+                    # enter email, verify email is valid
+                    r = session.post("https://login.tidal.com/api/email", params=params, json={
+                        'email': login
+                    }, headers={
+                        'user-agent': user_agent,
+                        'x-csrf-token': session.cookies['_csrf-token'],
+                        'accept': 'application/json, text/plain, */*',
+                        'content-type': 'application/json',
+                        'accept-language': 'en-US'
+                    }, verify=False)
+                    if r.status_code != 200:
+                        return r.text, False
+            except Exception:
+                pass
             return r.text, False
 
         if not r.json()['isValidEmail']:
@@ -401,6 +428,26 @@ class TidalAPI(object):
         }, verify=False)
 
         if r.status_code != 200:
+            try:
+                _response = r.json()
+                if _response.get("url"):
+                    datadome = input(f"Please solve captcha at url {_response.get('url')} and enter cookie from response: ").split(';')[0]
+                    session.cookies[datadome.split('=')[0]] = datadome.split('=')[1]
+                    # login with user credentials
+                    r = session.post('https://login.tidal.com/api/email/user/existing', params=params, json={
+                        'email': login,
+                        'password': password
+                    }, headers={
+                        'User-Agent': user_agent,
+                        'x-csrf-token': session.cookies['_csrf-token'],
+                        'accept': 'application/json, text/plain, */*',
+                        'content-type': 'application/json',
+                        'accept-language': 'en-US'
+                    }, verify=False)
+                    if r.status_code != 200:
+                        return r.text, False
+            except Exception:
+                pass
             return r.text, False
 
         # retrieve access code
@@ -411,6 +458,7 @@ class TidalAPI(object):
 
         if r.status_code == 401:
             return 'Incorrect password', False
+        print(r.status_code, r.text)
         assert (r.status_code == 302 or r.status_code == 200)
         if r.status_code == 200:
             groups = re.findall(r'successRedirectUrl:"([^"]*)"', r.text)
@@ -447,7 +495,6 @@ class TidalAPI(object):
         self.key.refreshToken = r.json()['refresh_token']
         # print(f"SUCCESSFUL HACK: {self.key.accessToken} | {self.key.refreshToken} | {self.key.userId} | {self.key.expiresIn}")
         return None, True
-        
 
     def getAlbum(self, id):
         msg, data = self.__get__('albums/' + str(id))
@@ -540,13 +587,14 @@ class TidalAPI(object):
             albums.append(dictToModel(item, Album()))
         return None, albums
 
-    def getStreamUrl(self, id, quality: AudioQuality):
+    def getStreamUrl(self, id, quality: AudioQuality, support_segmented_streaming: bool = False):
         squality = self.__getQualityString__(quality)
         paras = {"audioquality": squality, "playbackmode": "STREAM", "assetpresentation": "FULL"}
         msg, data = self.__get__('tracks/' + str(id) + "/playbackinfopostpaywall", paras, urlpre="https://desktop.tidal.com/v1/")
         if msg is not None:
             return msg, None
         resp = dictToModel(data, __StreamRespond__())
+        print(resp.__dict__)
         print(f"{resp.trackid} - {resp.audioQuality}")
 
         if "vnd.tidal.bt" in resp.manifestMimeType:
@@ -560,21 +608,37 @@ class TidalAPI(object):
             ret.audioMode = resp.audioMode
             ret.streamType = "default"
             return "", ret
-        elif "application/vnd.apple.mpegurl" in resp.manifestMimeType:
-            return "Can't get the streamUrl, type is " + resp.manifestMimeType, None
-            manifest = json.loads(base64.b64decode(resp.manifest).decode('utf-8'))
-            ret = StreamUrl()
-            ret.trackid = resp.trackid
-            ret.soundQuality = resp.audioQuality
-            ret.codec = manifest['codecs']
-            ret.encryptionKey = manifest['keyId'] if 'keyId' in manifest else manifest["licenseSecurityToken"] if "licenseSecurityToken" in manifest else ""
-            ret.url = manifest['urls'][0]
-            ret.audioMode = resp.audioMode
-            ret.streamType = "m3u8"
-            m3u8_manifest = base64.b64decode(manifest["manifest"])
-            incl_m3u8 = re.findall(r"base64,([A-Za-z0-9+\/.]*)", m3u8_manifest)[1]
+        elif "application/dash+xml" in resp.manifestMimeType and support_segmented_streaming:
+            try:
+                manifest_xml = base64.b64decode(resp.manifest).decode('utf-8')
+                root = ET.fromstring(manifest_xml)
+                namespaces = {"ns": 'urn:mpeg:dash:schema:mpd:2011'}
+                initialization_url = root.find(".//ns:SegmentTemplate", namespaces).get("initialization")
+                media_template = root.find(".//ns:SegmentTemplate", namespaces).get("media")
+                segment_timeline = root.find(".//ns:SegmentTimeline", namespaces)
+                codec = root.find(".//ns:Representation", namespaces).get("codecs")
+                total_segments = sum([int(s.get("r", 0)) + 1 for s in segment_timeline.findall("ns:S", namespaces)])
+                segments = []
+                for i in range(0, total_segments + 1):
+                    if i == 0:
+                        segment_url = initialization_url
+                    else:
+                        segment_url = media_template.replace("$Number$", str(i))
+                    segments.append(segment_url)
+                print(segments)
+                ret = SegmentStreamUrl()
+                ret.trackid = resp.trackid
+                ret.soundQuality = resp.audioQuality
+                ret.codec = codec
+                ret.url = f"https://google.com/file.{codec}"  # BACKWARD COMPABILITY HACK
+                ret.total_segments = total_segments
+                ret.segments = segments
+                ret.audioMode = resp.audioMode
+                ret.streamType = "stream"
+                return "", ret
+            except Exception as e:
+                logging.exception("exception!", exc_info=e)
             
-            return "", ret
         return "Can't get the streamUrl, type is " + resp.manifestMimeType, None
 
     def getVideoStreamUrl(self, id, quality: VideoQuality):

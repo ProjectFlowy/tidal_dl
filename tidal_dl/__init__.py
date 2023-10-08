@@ -82,7 +82,7 @@ def setAPIKey():
     Printf.apikeys(apiKey.getItems())
     index = int(Printf.enterLimit("APIKEY index:", LANG.MSG_INPUT_ERR, apiKey.getLimitIndexs()))
     
-    if index == 5 or index == 6:
+    if index in [5, 6, 7]:
         CONF.apiKeyIndex = index
         Settings.save(CONF)
         API.apiKey = apiKey.getItem(index)
@@ -244,7 +244,7 @@ def main():
             print(ans)
             checkLogin()
         elif choice == "21":
-            err, suc = API.loginByLoginPassword("login", "password")
+            err, suc = API.loginByLoginPassword("", "", "android")
             if not err:
                 TOKEN.accessToken = API.key.accessToken
                 TOKEN.refreshToken = API.key.refreshToken

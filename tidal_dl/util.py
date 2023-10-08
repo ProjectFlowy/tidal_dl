@@ -338,54 +338,67 @@ def convert(srcPath, stream):
 
 def downloadTrack(track: Track, album=None, playlist=None, userProgress=None, partSize=1048576):
     try:
-        msg, stream = API.getStreamUrl(track.id, CONF.audioQuality)
+        msg, stream = API.getStreamUrl(track.id, CONF.audioQuality, True)
         if not aigpy.string.isNull(msg) or stream is None:
             Printf.err(track.title + "." + msg)
             return False, msg
         if CONF.showTrackInfo:
             Printf.track(track, stream)
-        if userProgress is not None:
-            userProgress.updateStream(stream)
-        path = getTrackPath(CONF, track, stream, album, playlist)
+        if stream.streamType == "default":
+            if userProgress is not None:
+                userProgress.updateStream(stream)
+            path = getTrackPath(CONF, track, stream, album, playlist)
 
-        # check exist
-        if skip(path, stream.url):
-            Printf.success(aigpy.path.getFileName(path) + " (skip:already exists!)")
+            # check exist
+            if skip(path, stream.url):
+                Printf.success(aigpy.path.getFileName(path) + " (skip:already exists!)")
+                return True, ""
+
+            # download
+            logging.info("[DL Track] name=" + aigpy.path.getFileName(path) + "\nurl=" + stream.url)
+            tool = aigpy.download.DownloadTool(path + '.part', [stream.url])
+            tool.setUserProgress(userProgress)
+            tool.setPartSize(partSize)
+            check, err = tool.start(CONF.showProgress)
+            if not check:
+                Printf.err("Download failed! " + aigpy.path.getFileName(path) + ' (' + str(err) + ')')
+                return False, str(err)
+
+            # encrypted -> decrypt and remove encrypted file
+            encrypted(stream, path + '.part', path)
+
+            # convert
+            path = convert(path, stream)
+
+            # contributors
+            msg, contributors = API.getTrackContributors(track.id)
+            msg, tidalLyrics = API.getLyrics(track.id)
+
+            lyrics = '' if tidalLyrics is None else tidalLyrics.subtitles
+            if CONF.lyricFile:
+                if tidalLyrics is None:
+                    Printf.info(f'Failed to get lyrics from tidal!"{track.title}"')
+                else:
+                    lrcPath = path.rsplit(".", 1)[0] + '.lrc'
+                    aigpy.fileHelper.write(lrcPath, tidalLyrics.subtitles, 'w')
+
+            setMetaData(track, album, path, contributors, lyrics)
+            Printf.success(aigpy.path.getFileName(path))
             return True, ""
+        elif stream.streamType == "stream":
+            path = getTrackPath(CONF, track, stream, album, playlist)
+            print(path)
 
-        # download
-        logging.info("[DL Track] name=" + aigpy.path.getFileName(path) + "\nurl=" + stream.url)
-        tool = aigpy.download.DownloadTool(path + '.part', [stream.url])
-        tool.setUserProgress(userProgress)
-        tool.setPartSize(partSize)
-        check, err = tool.start(CONF.showProgress)
-        if not check:
-            Printf.err("Download failed! " + aigpy.path.getFileName(path) + ' (' + str(err) + ')')
-            return False, str(err)
-
-        # encrypted -> decrypt and remove encrypted file
-        encrypted(stream, path + '.part', path)
-
-        # convert
-        path = convert(path, stream)
-
-        # contributors
-        msg, contributors = API.getTrackContributors(track.id)
-        msg, tidalLyrics = API.getLyrics(track.id)
-
-        lyrics = '' if tidalLyrics is None else tidalLyrics.subtitles
-        if CONF.lyricFile:
-            if tidalLyrics is None:
-                Printf.info(f'Failed to get lyrics from tidal!"{track.title}"')
+            check, msg = aigpy.m3u8.downloadByTsUrls(stream.segments, path)
+            if check is True:
+                Printf.success(aigpy.path.getFileName(path))
+                return True, ''
             else:
-                lrcPath = path.rsplit(".", 1)[0] + '.lrc'
-                aigpy.fileHelper.write(lrcPath, tidalLyrics.subtitles, 'w')
-
-        setMetaData(track, album, path, contributors, lyrics)
-        Printf.success(aigpy.path.getFileName(path))
-        return True, ""
+                Printf.err("\nDownload failed!" + msg + '(' + aigpy.path.getFileName(path) + ')')
+                return False, msg
     except Exception as e:
         Printf.err("Download failed! " + track.title + ' (' + str(e) + ')')
+        logging.exception("Download error!", exc_info=e)
         return False, str(e)
 
 

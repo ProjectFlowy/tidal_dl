@@ -21,6 +21,18 @@ class StreamUrl(ModelBase):
     audioMode = None
 
 
+class SegmentStreamUrl(ModelBase):
+    trackid = None
+    streamType = None
+    url = None
+    total_segments = None
+    segments = None
+    codec = None
+    encryptionKey = None
+    soundQuality = None
+    audioMode = None
+
+
 class VideoStreamUrl(ModelBase):
     codec = None
     resolution = None

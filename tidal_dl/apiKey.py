@@ -70,6 +70,14 @@ __KEYS_JSON__ = '''
             "clientSecret": "",
             "valid": "True",
             "from": ""
+        },
+        {
+            "platform": "Android",
+            "formats": "Normal/High/HiFi/HI-Res",
+            "clientId": "6BDSRdpK9hqEBTgU",
+            "clientSecret": "",
+            "valid": "True",
+            "from": ""
         }
     ]
 }
